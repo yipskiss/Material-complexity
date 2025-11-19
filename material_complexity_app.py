@@ -141,7 +141,7 @@ def hilbert_to_sequence(image_array, size=1024):
     return np.array(sequence)
 
 
-def ordinal_patterns(sequence, D=5, tau=1):
+def ordinal_patterns(sequence, D=6, tau=1):
     """Bandt-Pompe ordinal patterns 생성"""
     N = len(sequence)
     patterns = []
@@ -251,11 +251,11 @@ def fisher_information(pattern_probs, D=5):
 def measure_complexity(image_array):
     """재질 이미지의 H, C, F 측정"""
     sequence = hilbert_to_sequence(image_array, size=1024)
-    patterns, pattern_probs = ordinal_patterns(sequence, D=5, tau=1)
+    patterns, pattern_probs = ordinal_patterns(sequence, D=6, tau=1)
     
-    H = permutation_entropy(pattern_probs, D=5, normalize=True)
-    C = statistical_complexity(pattern_probs, D=5)
-    F = fisher_information(pattern_probs, D=5)
+    H = permutation_entropy(pattern_probs, D=6, normalize=True)
+    C = statistical_complexity(pattern_probs, D=6)
+    F = fisher_information(pattern_probs, D=6)
     
     return H, C, F
 
