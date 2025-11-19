@@ -5,15 +5,18 @@ Material Complexity Analyzer
 H (Permutation Entropy) - 무질서도
 C (Statistical Complexity) - 구조적 복잡도  
 F (Fisher Information) - 경계 선명도
+
+기반: Bariviera et al. (2025) - Hilbert Curve + Information Theory
 """
 
 import streamlit as st
 import numpy as np
 from PIL import Image
 from hilbertcurve.hilbertcurve import HilbertCurve
-from math import factorial  # ← 여기 수정!
+from math import factorial
 import itertools
-import io
+import pandas as pd
+from datetime import datetime
 
 # 페이지 설정
 st.set_page_config(
@@ -21,6 +24,10 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
+
+# 세션 상태 초기화
+if 'results_history' not in st.session_state:
+    st.session_state.results_history = []
 
 # 스타일
 st.markdown("""
@@ -88,6 +95,13 @@ st.markdown("""
         border-left: 4px solid #1976d2;
         margin: 2rem 0;
     }
+    .justification-box {
+        background-color: #f3e5f5;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 4px solid #9c27b0;
+        margin: 2rem 0;
+    }
     .stButton>button {
         width: 100%;
         background-color: #1f77b4;
@@ -100,7 +114,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def hilbert_to_sequence(image_array, size=512):
+def hilbert_to_sequence(image_array, size=1024):
     """2D 이미지를 Hilbert Curve로 1D 시퀀스 변환"""
     # Grayscale 변환
     if len(image_array.shape) == 3:
@@ -108,7 +122,7 @@ def hilbert_to_sequence(image_array, size=512):
     else:
         gray = image_array
     
-    # 512x512 리사이즈
+    # 1024×1024 리사이즈
     img_pil = Image.fromarray(gray.astype('uint8'))
     img_pil = img_pil.resize((size, size))
     img_array = np.array(img_pil, dtype=float)
@@ -132,13 +146,11 @@ def ordinal_patterns(sequence, D=5, tau=1):
     N = len(sequence)
     patterns = []
     
-    # 부분 시퀀스 추출 및 패턴 변환
     for t in range(N - (D-1)*tau):
         sub_seq = [sequence[t + i*tau] for i in range(D)]
         pattern = tuple(np.argsort(sub_seq))
         patterns.append(pattern)
     
-    # 확률 분포 계산
     unique_patterns, counts = np.unique(patterns, axis=0, return_counts=True)
     total = len(patterns)
     
@@ -151,13 +163,11 @@ def ordinal_patterns(sequence, D=5, tau=1):
 
 def permutation_entropy(pattern_probs, D=5, normalize=True):
     """H (Permutation Entropy) 계산"""
-    # Shannon Entropy
     S = 0
     for prob in pattern_probs.values():
         if prob > 0:
             S -= prob * np.log(prob)
     
-    # 정규화
     if normalize:
         max_entropy = np.log(factorial(D))
         H = S / max_entropy
@@ -169,11 +179,9 @@ def permutation_entropy(pattern_probs, D=5, normalize=True):
 
 def statistical_complexity(pattern_probs, D=5):
     """C_JS (Statistical Complexity) 계산"""
-    # P_e: 균등 분포
-    num_patterns = int(factorial(D))  # ← int() 추가!
+    num_patterns = int(factorial(D))
     p_e = 1.0 / num_patterns
     
-    # P 분포 (실제)
     P = np.zeros(num_patterns)
     for i, pattern in enumerate(itertools.permutations(range(D))):
         if pattern in pattern_probs:
@@ -181,10 +189,8 @@ def statistical_complexity(pattern_probs, D=5):
         else:
             P[i] = 0
     
-    # P_e 분포
     P_e = np.ones(num_patterns) * p_e
     
-    # Jensen-Shannon Divergence
     def shannon_entropy(probs):
         S = 0
         for p in probs:
@@ -198,17 +204,13 @@ def statistical_complexity(pattern_probs, D=5):
     
     J = S_avg - 0.5*S_P - 0.5*S_Pe
     
-    # Q_0 정규화 상수
     Q_0 = -2 * ((num_patterns+1)/num_patterns * np.log(num_patterns+1) 
                 - 2*np.log(2*num_patterns) + np.log(num_patterns))**(-1)
     
-    # Q_J
     Q_J = J / Q_0 if Q_0 != 0 else 0
     
-    # H 계산
     H = permutation_entropy(pattern_probs, D, normalize=True)
     
-    # C_JS
     C_JS = Q_J * H
     
     return C_JS
@@ -216,11 +218,9 @@ def statistical_complexity(pattern_probs, D=5):
 
 def fisher_information(pattern_probs, D=5):
     """F (Fisher Information) 계산"""
-    # 모든 가능한 패턴을 Lehmer code 순서로 정렬
     all_patterns = list(itertools.permutations(range(D)))
     all_patterns_sorted = sorted(all_patterns)
     
-    # 확률 배열 생성
     probs = []
     for pattern in all_patterns_sorted:
         if pattern in pattern_probs:
@@ -230,13 +230,11 @@ def fisher_information(pattern_probs, D=5):
     
     probs = np.array(probs)
     
-    # Fisher Information 계산
     F_sum = 0
     for j in range(len(probs) - 1):
         diff = np.sqrt(probs[j+1]) - np.sqrt(probs[j])
         F_sum += diff**2
     
-    # F_0 정규화 상수
     if np.max(probs) == 1 and np.sum(probs > 0) == 1:
         if np.argmax(probs) in [0, len(probs)-1]:
             F_0 = 1
@@ -251,16 +249,10 @@ def fisher_information(pattern_probs, D=5):
 
 
 def measure_complexity(image_array):
-    """
-    재질 이미지의 H, C, F 측정
-    """
-    # Step 1: Hilbert Curve → 1D sequence
-    sequence = hilbert_to_sequence(image_array, size=512)
-    
-    # Step 2: Ordinal patterns → Probability distribution
+    """재질 이미지의 H, C, F 측정"""
+    sequence = hilbert_to_sequence(image_array, size=1024)
     patterns, pattern_probs = ordinal_patterns(sequence, D=5, tau=1)
     
-    # Step 3: Calculate H, C_JS, F
     H = permutation_entropy(pattern_probs, D=5, normalize=True)
     C = statistical_complexity(pattern_probs, D=5)
     F = fisher_information(pattern_probs, D=5)
@@ -324,6 +316,35 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# 사이드바 - 측정 기록
+with st.sidebar:
+    st.markdown("### 📊 측정 기록")
+    
+    if st.session_state.results_history:
+        st.caption(f"총 {len(st.session_state.results_history)}개 측정됨")
+        
+        if st.button("🗑️ 기록 전체 삭제"):
+            st.session_state.results_history = []
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # 간단한 요약
+        for idx, result in enumerate(reversed(st.session_state.results_history)):
+            with st.expander(f"{idx+1}. {result['filename'][:20]}..."):
+                st.write(f"H: {result['H']:.3f}")
+                st.write(f"C: {result['C']:.3f}")
+                st.write(f"F: {result['F']:.3f}")
+                st.caption(result['timestamp'])
+    else:
+        st.info("아직 측정 기록이 없습니다")
+    
+    st.markdown("---")
+    st.markdown("### ℹ️ 정보")
+    st.caption("이미지 크기: 1024×1024")
+    st.caption("Embedding: D=5, τ=1")
+    st.caption("계산 시간: ~1-2분")
+
 # 파일 업로드
 uploaded_file = st.file_uploader(
     "재질 이미지 업로드 (JPG, PNG)",
@@ -343,9 +364,19 @@ if uploaded_file is not None:
     
     # 측정 버튼
     if st.button("🔍 복잡도 측정하기", use_container_width=True):
-        with st.spinner('측정 중... (약 30초-1분 소요)'):
+        with st.spinner('측정 중... (약 1-2분 소요)'):
             # 측정
             H, C, F = measure_complexity(image_array)
+            
+            # 기록 저장
+            result_data = {
+                'filename': uploaded_file.name,
+                'H': H,
+                'C': C,
+                'F': F,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            st.session_state.results_history.append(result_data)
             
             # 해석
             h_level, h_meaning, h_color = interpret_value(H, 'H')
@@ -366,7 +397,7 @@ if uploaded_file is not None:
                 <div class="metric-card metric-card-h">
                     <div class="metric-label">H (무질서도)</div>
                     <div class="metric-value">{H:.3f}</div>
-                    <div class="metric-desc">얼마나 예측 불가능한가?</div>
+                    <div class="metric-desc">패턴의 예측 불가능성</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -378,15 +409,15 @@ if uploaded_file is not None:
                 
                 with st.expander("자세히 보기"):
                     st.markdown("""
-                    **H (Permutation Entropy)**
+                    **H (Permutation Entropy) - 무질서도**
                     
-                    - **0.0~0.3:** 규칙적 (줄무늬, 타일)
+                    패턴의 다양성과 예측 불가능성을 측정합니다.
+                    
+                    - **0.0~0.2:** 규칙적, 반복적 (단색, 줄무늬)
                     - **0.3~0.7:** 중간 (부분적 패턴)
-                    - **0.7~1.0:** 불규칙 (자연재, 노이즈)
+                    - **0.8~1.0:** 불규칙, 무작위 (노이즈, 거친 표면)
                     
-                    💡 **시각적 복잡도**와 가장 일치 (r=0.685)
-                    
-                    **추천:** "복잡해 보이는 정도" 연구에 사용
+                    💡 픽셀 값(0-255)의 순서 패턴이 얼마나 다양한가를 측정
                     """)
             
             with col2:
@@ -394,7 +425,7 @@ if uploaded_file is not None:
                 <div class="metric-card metric-card-c">
                     <div class="metric-label">C (구조 복잡도)</div>
                     <div class="metric-value">{C:.3f}</div>
-                    <div class="metric-desc">얼마나 정교한 패턴인가?</div>
+                    <div class="metric-desc">조직화된 구조의 정도</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -406,15 +437,15 @@ if uploaded_file is not None:
                 
                 with st.expander("자세히 보기"):
                     st.markdown("""
-                    **C (Statistical Complexity)**
+                    **C (Statistical Complexity) - 구조적 조직**
                     
-                    - **0.0~0.3:** 단순 (극단적)
-                    - **0.3~0.7:** 정교한 구조
-                    - **0.7~1.0:** 복잡한 패턴
+                    복잡한 조직과 구조의 정도를 측정합니다.
                     
-                    ⚠️ **H와 반대 경향** (r=-0.94)
+                    - **0.0~0.2:** 단순 또는 완전 무작위 (단색 OR 노이즈)
+                    - **0.4~0.8:** 복잡하면서 조직적 (나뭇결, 대리석, 직물)
+                    - **기타:** 중간
                     
-                    **사용:** 패턴 구조 분석
+                    💡 단순히 복잡하기만 한 것이 아닌, 구조적 깊이를 측정
                     """)
             
             with col3:
@@ -422,7 +453,7 @@ if uploaded_file is not None:
                 <div class="metric-card metric-card-f">
                     <div class="metric-label">F (경계 선명도)</div>
                     <div class="metric-value">{F:.3f}</div>
-                    <div class="metric-desc">경계가 얼마나 선명한가?</div>
+                    <div class="metric-desc">국소적 변화의 급격함</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -434,29 +465,52 @@ if uploaded_file is not None:
                 
                 with st.expander("자세히 보기"):
                     st.markdown("""
-                    **F (Fisher Information)**
+                    **F (Fisher Information) - 지역적 변화**
                     
-                    - **0.0~0.3:** 부드러움 (그라데이션)
+                    국소적 변화의 급격함을 측정합니다.
+                    
+                    - **0.0~0.2:** 완만, 부드러움 (그라데이션, 광택 표면)
                     - **0.3~0.7:** 중간
-                    - **0.7~1.0:** 날카로움 (선명)
+                    - **0.7~1.0:** 급격, 날카로움 (강한 대비, 거친 암석)
                     
-                    ℹ️ **C와 유사** (r=0.72)
-                    
-                    **사용:** 경계/질감 연구 (선택)
+                    💡 픽셀 간 밝기 차이가 얼마나 급격한가를 측정
                     """)
             
-            # 권장사항
+            # 방법론 정당성
             st.markdown("---")
+            st.markdown("""
+            <div class="justification-box">
+                <h3>🔬 왜 이 방법을 사용하나요?</h3>
+                <p style='margin-top: 1rem;'>
+                본 측정 방법은 Bariviera et al. (2025)의 검증된 방법론을 기반으로 합니다:
+                </p>
+                <ul style='margin-top: 1rem;'>
+                    <li><strong>다차원적 분석:</strong> H, C, F 세 지표가 재질의 무질서도, 구조, 변화를 동시에 포착</li>
+                    <li><strong>회전 불변성:</strong> 이미지 회전에도 일관된 결과 (Hilbert Curve 사용)</li>
+                    <li><strong>방향 편향 제거:</strong> 행/열 스캔 방식의 편향 없음</li>
+                    <li><strong>객관적 정량화:</strong> 주관적 판단이 아닌 정보이론 기반 측정</li>
+                </ul>
+                <p style='color: #666; margin-top: 1rem; font-size: 0.9rem;'>
+                    논문: "Rotation invariant patterns based on Hilbert curve" <br>
+                    Pattern Analysis and Applications (2025)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 권장사항
             st.markdown("""
             <div class="recommendation-box">
                 <h3>💡 어떤 지표를 사용해야 하나요?</h3>
                 <p style='font-size: 1.1rem; margin-top: 1rem;'>
-                    <strong>"복잡해 보이는 정도"</strong>를 연구하신다면 
-                    <span style='background: #ffeb3b; padding: 0.2rem 0.5rem; border-radius: 4px; color: #000;'>
-                    <strong>H (무질서도)</strong></span>를 사용하세요.
+                    <strong>목적에 따라 선택하세요:</strong>
                 </p>
+                <ul style='margin-top: 1rem;'>
+                    <li><strong>H:</strong> 전반적인 불규칙성/다양성 측정</li>
+                    <li><strong>C:</strong> 구조적 복잡도와 조직화 정도</li>
+                    <li><strong>F:</strong> 경계 선명도와 국소적 거칠기</li>
+                </ul>
                 <p style='color: #666; margin-top: 1rem;'>
-                    검증 연구 결과, H가 주관적 복잡도 평가와 가장 일치했습니다 (r=0.685, p<0.001).
+                    세 지표를 함께 사용하면 재질의 특성을 종합적으로 이해할 수 있습니다.
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -467,11 +521,36 @@ if uploaded_file is not None:
             
             csv_data = f"filename,H,C,F\n{uploaded_file.name},{H:.4f},{C:.4f},{F:.4f}"
             st.download_button(
-                label="📄 CSV로 다운로드",
+                label="📄 이 결과만 CSV로 다운로드",
                 data=csv_data,
                 file_name=f"complexity_{uploaded_file.name.split('.')[0]}.csv",
                 mime="text/csv"
             )
+
+# 비교 테이블
+if st.session_state.results_history:
+    st.markdown("---")
+    st.markdown("## 📈 측정 결과 비교")
+    
+    # DataFrame 생성
+    df = pd.DataFrame(st.session_state.results_history)
+    df = df[['filename', 'H', 'C', 'F', 'timestamp']]
+    
+    # 소수점 정리
+    df['H'] = df['H'].apply(lambda x: f"{x:.3f}")
+    df['C'] = df['C'].apply(lambda x: f"{x:.3f}")
+    df['F'] = df['F'].apply(lambda x: f"{x:.3f}")
+    
+    st.dataframe(df, use_container_width=True)
+    
+    # 전체 다운로드
+    csv_all = df.to_csv(index=False)
+    st.download_button(
+        label="📊 전체 결과 CSV로 다운로드",
+        data=csv_all,
+        file_name=f"all_complexity_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
 
 else:
     # 사용 안내
@@ -495,9 +574,9 @@ else:
     with col2:
         st.markdown("""
         ### 측정 지표
-        - **H:** 시각적 복잡도 (주관 평가 일치)
-        - **C:** 구조적 복잡도 (패턴 분석)
-        - **F:** 경계 선명도 (질감 분석)
+        - **H:** 무질서도 (패턴의 다양성)
+        - **C:** 구조 복잡도 (조직화 정도)
+        - **F:** 지역적 변화 (경계 선명도)
         """)
     
     st.markdown("---")
@@ -505,13 +584,13 @@ else:
     ### ❓ 자주 묻는 질문
     
     **Q: 어떤 지표를 써야 하나요?**  
-    A: 대부분의 경우 **H (무질서도)**를 사용하세요. "복잡해 보이는 정도"와 가장 일치합니다.
+    A: 목적에 따라 다릅니다. H는 전반적 복잡도, C는 구조적 특성, F는 표면 거칠기를 나타냅니다.
     
     **Q: 측정이 오래 걸려요**  
-    A: 512×512 크기로 자동 변환하므로 30초-1분 정도 소요됩니다.
+    A: 1024×1024 크기로 계산하므로 1-2분 정도 소요됩니다. 정확도를 위한 것입니다.
     
-    **Q: Albedo와 Normal 중 뭘 측정하나요?**  
-    A: 둘 다 측정 가능합니다. 각각 다른 복잡도 정보를 제공합니다.
+    **Q: 여러 재질을 비교하고 싶어요**  
+    A: 하나씩 측정하면 자동으로 기록됩니다. 왼쪽 사이드바와 하단 비교표를 확인하세요.
     """)
 
 # 푸터
@@ -520,7 +599,11 @@ st.markdown("""
 <div style='text-align: center; color: #999; padding: 2rem;'>
     <p>Material Complexity Analyzer v2.0</p>
     <p style='font-size: 0.9rem;'>
-        Based on: Hilbert Curve + Permutation Entropy (Bariviera et al., 2025)
+        Based on: Hilbert Curve + Information Theory<br>
+        Bariviera et al. (2025) - Pattern Analysis and Applications
+    </p>
+    <p style='font-size: 0.8rem; margin-top: 1rem;'>
+        측정 방식: 1024×1024 리샘플링 | D=5, τ=1 | Grayscale 변환
     </p>
 </div>
 """, unsafe_allow_html=True)
