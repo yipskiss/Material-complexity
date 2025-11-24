@@ -1,10 +1,11 @@
 """
-재질 복잡도 측정기 (프랙탈 차원 버전)
-Material Complexity Analyzer - Fractal Dimension
+재질 복잡도 측정기
+Material Complexity Analyzer
 
 FD (Fractal Dimension) - 기하학적 복잡도
 L (Lacunarity) - 패턴 불균일성
-C (Combined) - 종합 복잡도
+
+Box-Counting Method
 """
 
 import streamlit as st
@@ -25,7 +26,7 @@ st.set_page_config(
 if 'results_history' not in st.session_state:
     st.session_state.results_history = []
 
-# 스타일 (동일)
+# 스타일
 st.markdown("""
 <style>
     .main-header {
@@ -48,9 +49,6 @@ st.markdown("""
     }
     .metric-card-l {
         background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    .metric-card-c {
-        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
     }
     .metric-value {
         font-size: 3rem;
@@ -84,21 +82,12 @@ st.markdown("""
         background-color: #fce4ec;
         color: #c2185b;
     }
-    .recommendation-box {
-        background-color: #e3f2fd;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 4px solid #1976d2;
-        margin: 2rem 0;
-        color: #1a1a1a;
+    .interpretation-preferred {
+        background-color: #e1f5fe;
+        color: #01579b;
+        border-left: 4px solid #0288d1;
     }
-    .recommendation-box h3 {
-        color: #1565c0;
-    }
-    .recommendation-box strong {
-        color: #0d47a1;
-    }
-    .justification-box {
+    .info-box {
         background-color: #f3e5f5;
         padding: 1.5rem;
         border-radius: 10px;
@@ -106,10 +95,10 @@ st.markdown("""
         margin: 2rem 0;
         color: #1a1a1a;
     }
-    .justification-box h3 {
+    .info-box h3 {
         color: #7b1fa2;
     }
-    .justification-box strong {
+    .info-box strong {
         color: #6a1b9a;
     }
     .stButton>button {
@@ -142,7 +131,7 @@ def box_count(image, box_size):
 
 
 def fractal_dimension(image_array):
-    """프랙탈 차원 계산"""
+    """프랙탈 차원 계산 (Box-Counting Method)"""
     if len(image_array.shape) == 3:
         gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
     else:
@@ -208,37 +197,31 @@ def measure_complexity(image_array):
     FD = fractal_dimension(image_array)
     L = lacunarity(image_array)
     
-    FD_norm = (FD - 1.0) / 1.0
-    C = 0.7 * FD_norm + 0.3 * L
-    
-    return FD, L, C
+    return FD, L
 
 
-def interpret_value(value, metric_type):
-    """값 해석"""
-    if metric_type == 'FD':
-        if value < 1.2:
-            return "낮음", "단순한 패턴", "low"
-        elif value < 1.6:
-            return "중간", "중간 복잡도", "medium"
-        else:
-            return "높음", "복잡한 패턴", "high"
-    
-    elif metric_type == 'L':
-        if value < 0.3:
-            return "낮음", "균일한 분포", "low"
-        elif value < 0.6:
-            return "중간", "중간 불균일", "medium"
-        else:
-            return "높음", "불균일 분포", "high"
-    
-    else:  # C
-        if value < 0.3:
-            return "낮음", "단순함", "low"
-        elif value < 0.6:
-            return "중간", "중간 복잡도", "medium"
-        else:
-            return "높음", "복잡함", "high"
+def interpret_fd(value):
+    """FD 값 해석"""
+    if value < 1.2:
+        return "매우 단순", "단순한 패턴", "low"
+    elif value < 1.4:
+        return "선호 범위 (하)", "편안한 복잡도", "preferred"
+    elif value < 1.7:
+        return "선호 범위 (상)", "흥미로운 복잡도", "preferred"
+    elif value < 1.8:
+        return "복잡", "높은 복잡도", "high"
+    else:
+        return "매우 복잡", "매우 높은 복잡도", "high"
+
+
+def interpret_l(value):
+    """L 값 해석"""
+    if value < 0.3:
+        return "균일함", "규칙적 배치", "low"
+    elif value < 0.6:
+        return "중간", "중간 불균일", "medium"
+    else:
+        return "불균일함", "불규칙 배치", "high"
 
 
 # 메인 앱
@@ -246,7 +229,7 @@ st.markdown('<div class="main-header">🎨 재질 복잡도 측정기</div>', un
 
 st.markdown("""
 <div style='text-align: center; color: #666; margin-bottom: 2rem;'>
-재질 이미지를 업로드하면 <strong>FD, L, C</strong> 세 가지 복잡도 지표를 자동으로 측정합니다
+재질 이미지의 <strong>프랙탈 차원(FD)</strong>과 <strong>불균일성(L)</strong>을 측정합니다
 </div>
 """, unsafe_allow_html=True)
 
@@ -267,7 +250,6 @@ with st.sidebar:
             with st.expander(f"{idx+1}. {result['filename'][:20]}..."):
                 st.write(f"FD: {result['FD']:.3f}")
                 st.write(f"L: {result['L']:.3f}")
-                st.write(f"C: {result['C']:.3f}")
                 st.caption(result['timestamp'])
     else:
         st.info("아직 측정 기록이 없습니다")
@@ -295,32 +277,30 @@ if uploaded_file is not None:
     
     if st.button("🔍 복잡도 측정하기", use_container_width=True):
         with st.spinner('측정 중... (약 1-2초)'):
-            FD, L, C = measure_complexity(image_array)
+            FD, L = measure_complexity(image_array)
             
             result_data = {
                 'filename': uploaded_file.name,
                 'FD': FD,
                 'L': L,
-                'C': C,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             st.session_state.results_history.append(result_data)
             
-            fd_level, fd_meaning, fd_color = interpret_value(FD, 'FD')
-            l_level, l_meaning, l_color = interpret_value(L, 'L')
-            c_level, c_meaning, c_color = interpret_value(C, 'C')
+            fd_level, fd_meaning, fd_color = interpret_fd(FD)
+            l_level, l_meaning, l_color = interpret_l(L)
             
             st.success('✅ 측정 완료!')
             
             st.markdown("---")
             st.markdown("## 📊 측정 결과")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.markdown(f"""
                 <div class="metric-card metric-card-fd">
-                    <div class="metric-label">FD (프랙탈 차원)</div>
+                    <div class="metric-label">FD (Fractal Dimension)</div>
                     <div class="metric-value">{FD:.3f}</div>
                     <div class="metric-desc">기하학적 복잡도</div>
                 </div>
@@ -338,17 +318,21 @@ if uploaded_file is not None:
                     
                     엣지 패턴의 기하학적 복잡도를 측정합니다.
                     
-                    - **1.0~1.2:** 단순 (단색, 격자)
-                    - **1.2~1.6:** 중간 (타일, 나뭇결)
-                    - **1.6~2.0:** 복잡 (프랙탈, 자연재)
+                    - **1.0~1.2:** 매우 단순 (단색, 격자)
+                    - **1.2~1.4:** 선호 범위 (하) - 편안함
+                    - **1.4~1.7:** 선호 범위 (상) - 흥미로움
+                    - **1.7~2.0:** 복잡함
                     
-                    💡 1차원(선) ~ 2차원(면)의 복잡도
+                    💡 **선호 범위 (1.2~1.7)**는 연구에서 입증된 
+                    인지적 회복을 촉진하는 범위입니다.
+                    
+                    📚 [Fractal Dimension이란?](https://en.wikipedia.org/wiki/Fractal_dimension)
                     """)
             
             with col2:
                 st.markdown(f"""
                 <div class="metric-card metric-card-l">
-                    <div class="metric-label">L (틈새도)</div>
+                    <div class="metric-label">L (Lacunarity)</div>
                     <div class="metric-value">{L:.3f}</div>
                     <div class="metric-desc">패턴 불균일성</div>
                 </div>
@@ -364,80 +348,65 @@ if uploaded_file is not None:
                     st.markdown("""
                     **L (Lacunarity)**
                     
-                    패턴의 균일성 vs 불균일성을 측정합니다.
+                    패턴의 공간적 분포 특성을 측정합니다.
                     
-                    - **0.0~0.3:** 균일 (반복 패턴)
-                    - **0.3~0.6:** 중간
-                    - **0.6~1.0:** 불균일 (불규칙 배치)
+                    - **0.0~0.3:** 균일한 반복 패턴
+                    - **0.3~0.6:** 중간 불균일
+                    - **0.6~1.0:** 불규칙 배치
                     
-                    💡 패턴의 "틈새" 정도
+                    💡 같은 FD를 가져도 L이 다르면 
+                    다른 시각적 특성을 나타냅니다.
+                    
+                    📚 [Lacunarity란?](https://en.wikipedia.org/wiki/Lacunarity)
                     """)
             
-            with col3:
-                st.markdown(f"""
-                <div class="metric-card metric-card-c">
-                    <div class="metric-label">C (종합 복잡도)</div>
-                    <div class="metric-value">{C:.3f}</div>
-                    <div class="metric-desc">FD + L 결합</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                <div class="interpretation interpretation-{c_color}">
-                    <strong>{c_level}:</strong> {c_meaning}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                with st.expander("자세히 보기"):
-                    st.markdown("""
-                    **C (Combined Complexity)**
-                    
-                    FD와 L를 결합한 종합 복잡도입니다.
-                    
-                    - **0.0~0.3:** 단순
-                    - **0.3~0.6:** 중간
-                    - **0.6~1.0:** 복잡
-                    
-                    💡 C = 0.7×FD + 0.3×L
-                    """)
-            
+            # 방법론 설명
             st.markdown("---")
             st.markdown("""
-            <div class="justification-box">
-                <h3>🔬 왜 프랙탈 차원을 사용하나요?</h3>
+            <div class="info-box">
+                <h3>🔬 측정 방법</h3>
                 <p style='margin-top: 1rem;'>
-                프랙탈 차원은 기하학적 패턴 분석에 최적화된 방법입니다:
+                본 애플리케이션은 <strong>Box-Counting Method</strong>를 사용하여 
+                프랙탈 차원을 계산합니다.
                 </p>
                 <ul style='margin-top: 1rem;'>
-                    <li><strong>직관적:</strong> 시각적 복잡도와 일치</li>
-                    <li><strong>빠름:</strong> 엣지 기반 계산 (1-2초)</li>
-                    <li><strong>효율적:</strong> 메모리 사용 최소</li>
-                    <li><strong>변별력:</strong> 패턴 유형 잘 구분</li>
+                    <li><strong>FD:</strong> 엣지 패턴의 기하학적 복잡도 (1.0~2.0)</li>
+                    <li><strong>L:</strong> 패턴의 공간적 분포 특성 (0~1)</li>
                 </ul>
                 <p style='color: #666; margin-top: 1rem; font-size: 0.9rem;'>
-                    Box-Counting Method + Lacunarity Analysis
+                    <strong>선호 범위 (FD 1.2~1.7)</strong>는 다수의 연구에서 
+                    인간이 선호하고 인지적 회복을 촉진하는 것으로 밝혀진 범위입니다.
                 </p>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("""
-            <div class="recommendation-box">
-                <h3>💡 어떤 지표를 사용해야 하나요?</h3>
-                <p style='font-size: 1.1rem; margin-top: 1rem;'>
-                    <strong>목적에 따라 선택하세요:</strong>
-                </p>
-                <ul style='margin-top: 1rem;'>
-                    <li><strong>FD:</strong> 패턴의 기하학적 복잡도</li>
-                    <li><strong>L:</strong> 패턴의 균일성/불균일성</li>
-                    <li><strong>C:</strong> 종합적인 복잡도 (추천)</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+            # 참고 자료
+            st.markdown("---")
+            st.markdown("### 📚 더 알아보기")
             
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **Fractal Dimension 기초**
+                - [Wikipedia - Fractal Dimension](https://en.wikipedia.org/wiki/Fractal_dimension)
+                - [Wolfram MathWorld](https://mathworld.wolfram.com/FractalDimension.html)
+                - [Box-Counting Method](https://en.wikipedia.org/wiki/Minkowski%E2%80%93Bouligand_dimension)
+                """)
+            
+            with col2:
+                st.markdown("""
+                **주요 연구**
+                - Taylor et al. (2011). Fractal fluency
+                - Hagerhall et al. (2015). EEG responses
+                - Spehar et al. (2003). Universal aesthetics
+                """)
+            
+            # CSV 다운로드
             st.markdown("---")
             st.markdown("### 📥 결과 다운로드")
             
-            csv_data = f"filename,FD,L,C\n{uploaded_file.name},{FD:.4f},{L:.4f},{C:.4f}"
+            csv_data = f"filename,FD,L\n{uploaded_file.name},{FD:.4f},{L:.4f}"
             st.download_button(
                 label="📄 이 결과만 CSV로 다운로드",
                 data=csv_data,
@@ -445,16 +414,16 @@ if uploaded_file is not None:
                 mime="text/csv"
             )
 
+# 비교 테이블
 if st.session_state.results_history:
     st.markdown("---")
     st.markdown("## 📈 측정 결과 비교")
     
     df = pd.DataFrame(st.session_state.results_history)
-    df = df[['filename', 'FD', 'L', 'C', 'timestamp']]
+    df = df[['filename', 'FD', 'L', 'timestamp']]
     
     df['FD'] = df['FD'].apply(lambda x: f"{x:.3f}")
     df['L'] = df['L'].apply(lambda x: f"{x:.3f}")
-    df['C'] = df['C'].apply(lambda x: f"{x:.3f}")
     
     st.dataframe(df, use_container_width=True)
     
@@ -486,20 +455,35 @@ else:
     with col2:
         st.markdown("""
         ### 측정 지표
-        - **FD:** 기하학적 복잡도 (1.0~2.0)
-        - **L:** 패턴 불균일성 (0~1)
-        - **C:** 종합 복잡도 (0~1)
+        - **FD (1.0~2.0)**: 기하학적 복잡도
+        - **L (0~1)**: 패턴 불균일성
+        - **선호 범위**: FD 1.2~1.7
         """)
+    
+    st.markdown("---")
+    st.markdown("""
+    ### ❓ 자주 묻는 질문
+    
+    **Q: FD 값이 높을수록 좋은 건가요?**  
+    A: 아니요. FD 1.2~1.7이 인간이 선호하는 범위입니다. 너무 낮거나 높으면 단조롭거나 복잡합니다.
+    
+    **Q: L 값은 무엇을 의미하나요?**  
+    A: 패턴이 얼마나 균일하게/불규칙하게 배치되어 있는지를 나타냅니다.
+    
+    **Q: 어떤 값을 선택해야 하나요?**  
+    A: 목적에 따라 다릅니다. 편안한 공간은 FD 1.3~1.5, 흥미로운 공간은 FD 1.5~1.7을 추천합니다.
+    """)
 
+# 푸터
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #999; padding: 2rem;'>
-    <p>Material Complexity Analyzer v3.0 (Fractal)</p>
+    <p>Material Complexity Analyzer</p>
     <p style='font-size: 0.9rem;'>
         Box-Counting Fractal Dimension + Lacunarity Analysis
     </p>
     <p style='font-size: 0.8rem; margin-top: 1rem;'>
-        측정 방식: Canny Edge Detection + Box-Counting
+        Based on fractal geometry and visual perception research
     </p>
 </div>
 """, unsafe_allow_html=True)
