@@ -175,10 +175,12 @@ L = (σ / μ)²
 ```
 streamlit>=1.28.0
 numpy>=1.24.0
-opencv-python>=4.8.0
+opencv-python-headless>=4.8.0
 Pillow>=10.0.0
 pandas>=2.0.0
 ```
+
+💡 **중요**: Streamlit Cloud 배포 시 `opencv-python-headless`를 사용하세요 (GUI 불필요)
 
 ---
 
@@ -195,6 +197,32 @@ A: 패턴이 얼마나 균일하게/불규칙하게 배치되어 있는지를 �
 
 **Q: 계산이 오래 걸리나요?**  
 A: 1-2초 내에 완료됩니다.
+
+---
+
+## 🐛 문제 해결
+
+### Streamlit Cloud 배포 오류
+
+**ImportError: cv2**
+```
+해결: requirements.txt에 opencv-python-headless 사용
+(opencv-python → opencv-python-headless)
+```
+
+**ModuleNotFoundError**
+```bash
+# 로컬에서 테스트
+pip install -r requirements.txt
+streamlit run material_complexity_app.py
+```
+
+**배포 후 앱이 안 열림**
+```
+1. GitHub 저장소가 public인지 확인
+2. requirements.txt 파일명 정확한지 확인
+3. Streamlit Cloud 로그 확인 (Manage app)
+```
 
 ---
 
